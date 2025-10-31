@@ -1,3 +1,7 @@
-from django.shortcuts import render
+from rest_framework import viewsets
+from .models import RTIStep
+from .serializers import RTIStepSerializer
 
-# Create your views here.
+class RTIStepViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = RTIStep.objects.all()
+    serializer_class = RTIStepSerializer
