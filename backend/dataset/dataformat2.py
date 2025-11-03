@@ -3,138 +3,161 @@ import pandas as pd
 import os
 
 # --- Configuration ---
-# Get the directory where this script (dataformat2.py) is located
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 INPUT_TXT_FILE = os.path.join(SCRIPT_DIR, "constitution_raw.txt")
 OUTPUT_CSV_FILE = os.path.join(SCRIPT_DIR, "articles.csv")
 # ---------------------
 
 # --- Regex Patterns ---
-# We will try to find lines that match these patterns.
-#
-# ^\s* -> Starts with (^) any amount of whitespace (\s*)
-# (\d+[A-Z]?)    -> Captures a number (e.g., "51" or "51A")
-# \.             -> Followed by a literal dot
-# \s+            -> Followed by one or more spaces
-# (.+)           -> Captures all other text on the line (the title)
-# $              -> End of the line
-ARTICLE_REGEX = re.compile(r"^\s*(\d+[A-Z]?)\.\s+([^.]+)$")
+# Matches "PART I", "PART IVA", etc.
+PART_REGEX = re.compile(r"^\s*P\s*A\s*R\s*T\s+[IVXLCDM]+[A-Z]?.*$")
+# Matches "CHAPTER I", "CHAPTER II", etc.
+CHAPTER_REGEX = re.compile(r"^\s*C\s*H\s*A\s*P\s*T\s*E\s*R\s+[IVXLCDM]+.*$")
+# Matches "1.", "15.", "31A.", "394A."
+# It now IGNORES lines that are clearly footnotes (Ins. by, Subs. by, etc.)
+ARTICLE_REGEX = re.compile(
+    r"^\s*(\d+[A-Z]?)\.\s+(?!(Subs\. by|Ins\. by|Added by|Omitted by|Rep\. by|See|Cl\.|Now|Art|w\.e\.f\.))(.+)$"
+)
+# Matches junk lines to ignore
+JUNK_REGEX = re.compile(
+    r"^\s*--- Page \d+ ---\s*$|"  # Page markers
+    r"^\s*\(i+\)\s*$|"             # Lines with just (i), (ii)
+    r"^\s*\[.*\]\s*$|"             # Lines with just [bracketed content]
+    r"^\s*______________________________________________\s*$"  # Footnote lines
+)
+# Matches lines that are probably the *end* of a multi-line title
+TITLE_END_REGEX = re.compile(r".*[\.—]$") 
 
-# --- UPDATED REGEX ---
-# This now looks for "PART [Roman Numeral]" and captures the ENTIRE line
-PART_REGEX = re.compile(r"^\s*(P\s*A\s*R\s*T\s+[IVXLCDM]+.*)$")
+# Matches lines that are clearly NOT article text (headings, etc.)
+NON_TEXT_REGEX = re.compile(
+    r"^\s*Right to .*|"
+    r"^\s*Cultural and Educational Rights|"
+    r"^\s*Saving of Certain Laws|"
+    r"^\s*Miscellaneous|"
+    r"^\s*General|"
+    r"^\s*Conduct of Government Business|"
+    r"^\s*Council of Ministers|"
+    r"^\s*Procedure Generally"
+)
 
-# --- UPDATED REGEX ---
-# This now looks for "CHAPTER [Roman Numeral]" and captures the ENTIRE line
-CHAPTER_REGEX = re.compile(r"^\s*(C\s*H\s*A\s*P\s*T\s*E\s*R\s+[IVXLCDM]+.*)$")
+def is_junk(line):
+    """Checks if a line should be ignored entirely."""
+    if not line:
+        return True
+    if JUNK_REGEX.search(line):
+        return True
+    if NON_TEXT_REGEX.search(line):
+        return True
+    return False
 
-# This is to filter out the junk lines we added
-JUNK_REGEX = re.compile(r"^\s*--- Page \d+ ---\s*$")
+def save_article(data_list, current_data, text_buffer):
+    """Helper to save the completed article data."""
+    if current_data:
+        current_data["original_text"] = " ".join(text_buffer).strip()
+        data_list.append(current_data)
+    return {}, [] # Return new, empty data and buffer
 
 def parse_constitution_text(txt_path, csv_path):
-    """
-    Reads the raw text file, parses it using regex, and saves the
-    structured data to a CSV file.
-    """
-    
     if not os.path.exists(txt_path):
         print(f"Error: Raw text file not found at '{txt_path}'")
         return
 
-    print(f"Starting parsing of '{txt_path}' (v2)...")
+    print(f"Starting robust parsing of '{txt_path}'...")
     
     articles_data = []
-    current_part = "NONE"
+    current_part = "PREAMBLE"
     current_chapter = "NONE"
     text_buffer = []
     current_article_data = {}
+    
+    parsing_started = False
 
     try:
         with open(txt_path, "r", encoding="utf-8") as f:
-            for line_num, line in enumerate(f, 1):
-                try:
-                    line = line.strip()
+            lines = f.readlines()
 
-                    if not line or JUNK_REGEX.search(line):
-                        continue
-                    
-                    part_match = PART_REGEX.search(line)
-                    chapter_match = CHAPTER_REGEX.search(line)
-                    article_match = ARTICLE_REGEX.search(line)
+        for i, line in enumerate(lines):
+            line = line.strip()
 
-                    if part_match:
-                        if current_article_data:
-                            current_article_data["original_text"] = " ".join(text_buffer).strip()
-                            articles_data.append(current_article_data)
-                        
-                        current_part = part_match.group(1)
-                        if current_part:  # Add null check
-                            current_part = current_part.strip()
-                        else:
-                            current_part = "NONE"
-                        current_chapter = "NONE"
-                        current_article_data = {}
-                        text_buffer = []
-                        print(f"Found: {current_part}")
+            if not parsing_started:
+                if "PREAMBLE" in line:
+                    parsing_started = True
+                    print("Found PREAMBLE. Starting parse...")
+                    current_article_data = {
+                        "part": "PREAMBLE",
+                        "chapter": "NONE",
+                        "article_no": "PREAMBLE",
+                        "title": "PREAMBLE",
+                        "original_text": "", "simple_text_en": "", "simple_text_hi": ""
+                    }
+                continue
 
-                    elif chapter_match:
-                        if current_article_data:
-                            current_article_data["original_text"] = " ".join(text_buffer).strip()
-                            articles_data.append(current_article_data)
-                            
-                        current_chapter = chapter_match.group(1)
-                        if current_chapter:  # Add null check
-                            current_chapter = current_chapter.strip()
-                        else:
-                            current_chapter = "NONE"
-                        current_article_data = {}
-                        text_buffer = []
-                        print(f"  Found: {current_chapter}")
-                    
-                    elif article_match:
-                        if current_article_data:
-                            current_article_data["original_text"] = " ".join(text_buffer).strip()
-                            articles_data.append(current_article_data)
+            if is_junk(line):
+                continue
+                
+            part_match = PART_REGEX.search(line)
+            chapter_match = CHAPTER_REGEX.search(line)
+            article_match = ARTICLE_REGEX.search(line)
 
-                        article_no = article_match.group(1)
-                        title = article_match.group(2)
-                        
-                        if article_no and title:  # Add null checks
-                            current_article_data = {
-                                "part": current_part,
-                                "chapter": current_chapter,
-                                "article_no": article_no.strip(),
-                                "title": title.strip(),
-                                "original_text": "",
-                                "simple_text_en": "",
-                                "simple_text_hi": ""
-                            }
-                            text_buffer = []
-                        
-                    elif current_article_data:
-                        text_buffer.append(line)
+            if part_match:
+                current_article_data, text_buffer = save_article(articles_data, current_article_data, text_buffer)
+                current_part = part_match.group(0).strip()
+                current_chapter = "NONE"
+                print(f"Found: {current_part}")
 
-                except Exception as e:
-                    print(f"Warning: Error processing line {line_num}: {str(e)}")
-                    continue
+            elif chapter_match:
+                current_article_data, text_buffer = save_article(articles_data, current_article_data, text_buffer)
+                current_chapter = chapter_match.group(0).strip()
+                print(f"  Found: {current_chapter}")
+            
+            elif article_match:
+                current_article_data, text_buffer = save_article(articles_data, current_article_data, text_buffer)
+                
+                article_no = article_match.group(1).strip()
+                title = article_match.group(3).strip()
 
-        # --- 4. Save the very last article ---
-        if current_article_data:
-            current_article_data["original_text"] = " ".join(text_buffer).strip()
-            articles_data.append(current_article_data)
+                # Handle multi-line titles
+                # Check if next line looks like more title (not a new part/chapter/article)
+                if (i + 1) < len(lines):
+                    next_line = lines[i + 1].strip()
+                    if next_line and not (PART_REGEX.search(next_line) or 
+                                         CHAPTER_REGEX.search(next_line) or 
+                                         ARTICLE_REGEX.search(next_line) or
+                                         NON_TEXT_REGEX.search(next_line)) and \
+                                         TITLE_END_REGEX.search(title):
+                        title += " " + next_line
+                        # We will process the next line as part of this one, so skip it
+                        lines[i + 1] = "" # Blank it out so we skip it
 
-        # --- 5. Export to CSV ---
+                current_article_data = {
+                    "part": current_part,
+                    "chapter": current_chapter,
+                    "article_no": article_no,
+                    "title": title,
+                    "original_text": "", "simple_text_en": "", "simple_text_hi": ""
+                }
+            
+            # This is article text
+            elif current_article_data and not (part_match or chapter_match or article_match):
+                text_buffer.append(line)
+
+        # --- Save the very last article ---
+        save_article(articles_data, current_article_data, text_buffer)
+
+        # --- Export to CSV ---
         if not articles_data:
-            print("\nError: No articles were parsed. The regex patterns might need adjustment.")
+            print("\nError: No articles were parsed.")
             return
 
         print(f"\nParsing complete. Found {len(articles_data)} articles.")
         
-        # Use pandas to create a clean DataFrame and save to CSV
         df = pd.DataFrame(articles_data, columns=[
             "part", "chapter", "article_no", "title", 
             "original_text", "simple_text_en", "simple_text_hi"
         ])
+        
+        # Clean up any bad titles
+        df['title'] = df['title'].str.replace('—$', '', regex=True).str.strip()
         
         df.to_csv(csv_path, index=False, encoding="utf-8")
         
