@@ -3,8 +3,10 @@ import pandas as pd
 import os
 
 # --- Configuration ---
-INPUT_TXT_FILE = "constitution_raw.txt"
-OUTPUT_CSV_FILE = "articles.csv"
+# Get the directory where this script (dataformat2.py) is located
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+INPUT_TXT_FILE = os.path.join(SCRIPT_DIR, "constitution_raw.txt")
+OUTPUT_CSV_FILE = os.path.join(SCRIPT_DIR, "articles.csv")
 # ---------------------
 
 # --- Regex Patterns ---
@@ -16,7 +18,7 @@ OUTPUT_CSV_FILE = "articles.csv"
 # \s+            -> Followed by one or more spaces
 # (.+)           -> Captures all other text on the line (the title)
 # $              -> End of the line
-ARTICLE_REGEX = re.compile(r"^\s*(\d+[A-Z]?)\.\s+(.+)$")
+ARTICLE_REGEX = re.compile(r"^\s*(\d+[A-Z]?)\.\s+([^.]+)$")
 
 # --- UPDATED REGEX ---
 # This now looks for "PART [Roman Numeral]" and captures the ENTIRE line
@@ -41,86 +43,80 @@ def parse_constitution_text(txt_path, csv_path):
 
     print(f"Starting parsing of '{txt_path}' (v2)...")
     
-    articles_data = []          # Our final list of all articles
-    current_part = "NONE"       # Stores the current Part (e.g., "PART V")
-    current_chapter = "NONE"    # Stores the current Chapter (e.g., "CHAPTER I")
-    text_buffer = []            # Temporarily holds the text for the current article
-    current_article_data = {}   # Holds the data for the article being processed
+    articles_data = []
+    current_part = "NONE"
+    current_chapter = "NONE"
+    text_buffer = []
+    current_article_data = {}
 
     try:
         with open(txt_path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip() # Clean up leading/trailing whitespace
+            for line_num, line in enumerate(f, 1):
+                try:
+                    line = line.strip()
 
-                # --- 1. Filter out Junk ---
-                if not line or JUNK_REGEX.search(line):
-                    continue
-                
-                # --- 2. Check for Structure (Part, Chapter, Article) ---
-                # We check in order of importance
-                part_match = PART_REGEX.search(line)
-                chapter_match = CHAPTER_REGEX.search(line)
-                article_match = ARTICLE_REGEX.search(line)
-
-                # --- 3. Handle Found Patterns ---
-                
-                # A. Found a new PART
-                if part_match:
-                    # Before moving to the new part, save the PREVIOUS article
-                    if current_article_data:
-                        current_article_data["original_text"] = " ".join(text_buffer).strip()
-                        articles_data.append(current_article_data)
+                    if not line or JUNK_REGEX.search(line):
+                        continue
                     
-                    # Now, set the new part and reset everything else
-                    # We capture the full line as the part title
-                    current_part = part_match.group(1).strip() 
-                    current_chapter = "NONE" # Reset chapter
-                    current_article_data = {}
-                    text_buffer = []
-                    print(f"Found: {current_part}")
+                    part_match = PART_REGEX.search(line)
+                    chapter_match = CHAPTER_REGEX.search(line)
+                    article_match = ARTICLE_REGEX.search(line)
 
-                # B. Found a new CHAPTER
-                elif chapter_match:
-                    # Before moving to the new chapter, save the PREVIOUS article
-                    if current_article_data:
-                        current_article_data["original_text"] = " ".join(text_buffer).strip()
-                        articles_data.append(current_article_data)
+                    if part_match:
+                        if current_article_data:
+                            current_article_data["original_text"] = " ".join(text_buffer).strip()
+                            articles_data.append(current_article_data)
                         
-                    # Now, set the new chapter
-                    # We capture the full line as the chapter title
-                    current_chapter = chapter_match.group(1).strip()
-                    current_article_data = {}
-                    text_buffer = []
-                    print(f"  Found: {current_chapter}")
-                
-                # C. Found a new ARTICLE
-                elif article_match:
-                    # Before moving to the new article, save the PREVIOUS article
-                    if current_article_data:
-                        current_article_data["original_text"] = " ".join(text_buffer).strip()
-                        articles_data.append(current_article_data)
+                        current_part = part_match.group(1)
+                        if current_part:  # Add null check
+                            current_part = current_part.strip()
+                        else:
+                            current_part = "NONE"
+                        current_chapter = "NONE"
+                        current_article_data = {}
+                        text_buffer = []
+                        print(f"Found: {current_part}")
 
-                    # Now, create the new article's data
-                    article_no = article_match.group(1)
-                    title = article_match.group(2).strip()
+                    elif chapter_match:
+                        if current_article_data:
+                            current_article_data["original_text"] = " ".join(text_buffer).strip()
+                            articles_data.append(current_article_data)
+                            
+                        current_chapter = chapter_match.group(1)
+                        if current_chapter:  # Add null check
+                            current_chapter = current_chapter.strip()
+                        else:
+                            current_chapter = "NONE"
+                        current_article_data = {}
+                        text_buffer = []
+                        print(f"  Found: {current_chapter}")
                     
-                    current_article_data = {
-                        "part": current_part,
-                        "chapter": current_chapter,
-                        "article_no": article_no,
-                        "title": title,
-                        "original_text": "",
-                        "simple_text_en": "", # Will be filled by content team
-                        "simple_text_hi": ""  # Will be filled by content team
-                    }
-                    text_buffer = [] # Clear the buffer for the new article's text
+                    elif article_match:
+                        if current_article_data:
+                            current_article_data["original_text"] = " ".join(text_buffer).strip()
+                            articles_data.append(current_article_data)
 
-                # D. Not a Part, Chapter, or Article title
-                else:
-                    # This line must be the body text of the current article.
-                    # Add it to our buffer.
-                    if current_article_data: # Only add if we're "inside" an article
+                        article_no = article_match.group(1)
+                        title = article_match.group(2)
+                        
+                        if article_no and title:  # Add null checks
+                            current_article_data = {
+                                "part": current_part,
+                                "chapter": current_chapter,
+                                "article_no": article_no.strip(),
+                                "title": title.strip(),
+                                "original_text": "",
+                                "simple_text_en": "",
+                                "simple_text_hi": ""
+                            }
+                            text_buffer = []
+                        
+                    elif current_article_data:
                         text_buffer.append(line)
+
+                except Exception as e:
+                    print(f"Warning: Error processing line {line_num}: {str(e)}")
+                    continue
 
         # --- 4. Save the very last article ---
         if current_article_data:

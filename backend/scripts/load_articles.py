@@ -1,10 +1,18 @@
-# script to load article data
 import os
 import django
 import csv
+import sys  # <-- Add this
+
+# --- Add these lines to fix the path ---
+# Get the directory of the script (backend/scripts)
+script_dir = os.path.dirname(os.path.abspath(__file__))
+# Get the parent directory (backend/) and add it to sys.path
+project_root = os.path.abspath(os.path.join(script_dir, '..'))
+sys.path.append(project_root)
+# --- End of fix ---
 
 # Set up the Django environment
-# This points Django to your project's settings
+# This will now correctly find 'backend.settings'
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings')
 django.setup()
 
@@ -12,7 +20,7 @@ django.setup()
 from apps.articles.models import Article
 
 # Define the path to your CSV file
-CSV_PATH = 'backend/dataset/articles.csv'
+CSV_PATH = 'backend/dataset/articles.csv'  # This path is relative to the 'backend' folder now
 
 def run():
     if Article.objects.exists():
@@ -20,8 +28,12 @@ def run():
         return
 
     print("Loading Constitution articles...")
-
-    with open(CSV_PATH, mode='r', encoding='utf-8') as f:
+    
+    # --- Fix CSV Path ---
+    # Build a full path to the CSV from the project root
+    full_csv_path = os.path.join(project_root, 'dataset/articles.csv')
+    
+    with open(full_csv_path, mode='r', encoding='utf-8') as f: # <-- Use full_csv_path
         reader = csv.DictReader(f)
         
         articles_to_create = []

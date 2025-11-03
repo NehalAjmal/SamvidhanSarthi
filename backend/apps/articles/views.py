@@ -2,6 +2,7 @@ from rest_framework import viewsets, filters
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from .models import Article
+from django.db import models
 from .serializers import ArticleSerializer
 
 class ArticleViewSet(viewsets.ReadOnlyModelViewSet):
@@ -18,15 +19,25 @@ class ArticleViewSet(viewsets.ReadOnlyModelViewSet):
         query = request.query_params.get("q", "")
         language = request.query_params.get("lang", "en")
 
+        # 1. FIXED QUERY: Search title AND original_text
         qs = Article.objects.filter(
-            simple_text_en__icontains=query
-        ) | Article.objects.filter(title__icontains=query)
+            models.Q(title__icontains=query) |
+            models.Q(original_text__icontains=query)
+        )
 
         data = []
         for art in qs[:30]:
+            # 2. FIXED RESPONSE: Return 'original_text' as content
+            # (since simple_text_en is empty in your CSV)
+            content_to_return = art.simple_text_hi if language == "hi" else art.original_text
+            
+            # Use original_text if HI is also blank
+            if language == "hi" and not art.simple_text_hi:
+                content_to_return = art.original_text
+
             data.append({
                 "article_no": art.article_no,
                 "title": art.title,
-                "content": art.simple_text_hi if language == "hi" else art.simple_text_en
+                "content": content_to_return 
             })
         return Response(data)
