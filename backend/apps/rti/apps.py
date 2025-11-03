@@ -3,4 +3,4 @@ from django.apps import AppConfig
 
 class RtiConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
-    name = 'rti'
+    name = 'apps.rti'
